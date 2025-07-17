@@ -1,33 +1,33 @@
+import java.text.SimpleDateFormat
+
 plugins {
     id 'java-library'
-}
-
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(11)
-    }   
+    id "biz.aQute.bnd.builder" version "7.0.0"
 }
 
 project.ext.set('archiveName', 'java-pcap')
 project.ext.set('pcapVersion', file('VERSION').text.trim())
-project.ext.set('buildDate', new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ").format(new Date())) 
+project.ext.set('buildDate', new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ").format(new Date()))
 project.ext.set('mainClass', 'com.silabs.na.pcap.Main')
 project.ext.set('manifestMap', [
-      'Built-By'       : System.properties['user.name'],
-      'Build-Timestamp': project.buildDate,
-      'Created-By'     : "Gradle ${gradle.gradleVersion}",
-      'Build-Jdk'      : "${System.properties['java.version']} (${System.properties['java.vendor']} ${System.properties['java.vm.version']})",
-      'Build-OS'       : "${System.properties['os.name']} ${System.properties['os.arch']} ${System.properties['os.version']}",
-      'Main-Class'     : project.mainClass
-    ])
+    'Built-By'       : System.properties['user.name'],
+    'Build-Timestamp': project.buildDate,
+    'Created-By'     : "Gradle ${gradle.gradleVersion}",
+    'Build-Jdk'      : "${System.properties['java.version']} (${System.properties['java.vendor']} ${System.properties['java.vm.version']})",
+    'Build-OS'       : "${System.properties['os.name']} ${System.properties['os.arch']} ${System.properties['os.version']})",
+    'Main-Class'     : project.mainClass
+])
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(11)
+    }
+    withJavadocJar()
+    withSourcesJar()
+}
 
 repositories {
     mavenCentral()
-}
-
-java {
-  withJavadocJar()
-  withSourcesJar()
 }
 
 dependencies {
@@ -40,66 +40,83 @@ test {
 }
 
 javadocJar {
-  archiveBaseName = project.archiveName
-  archiveVersion = project.pcapVersion
+    archiveBaseName = project.archiveName
+    archiveVersion = project.pcapVersion
 }
 
 sourcesJar {
-  archiveBaseName = project.archiveName
-  archiveVersion = project.pcapVersion
+    archiveBaseName = project.archiveName
+    archiveVersion = project.pcapVersion
 }
-
 
 jar {
     archiveBaseName = project.archiveName
     archiveVersion = project.pcapVersion
+
     manifest {
         attributes(project.manifestMap)
     }
-}
 
-task generateLinkType() {
-  doLast {
-    def dltH = file('../../libpcap/pcap/dlt.h')
-    def linkTypeJava = file('src/main/java/com/silabs/na/pcap/LinkType.java')
-    def head = "head -n 29 ${linkTypeJava.toString()}".execute().text
-    def tail = "tail -n 32 ${linkTypeJava.toString()}".execute().text
-    def list = dltH.text.readLines().findAll { it.startsWith("#define DLT_") && !it.contains("DLT_CLASS(x)") &&!it.contains("MATCHING_MAX") }
-    list = list.findAll { !(it.contains("PFSYNC") && !it.contains("246")) }
-    list = list.findAll { !(it.contains("RAW") && !it.contains("12")) }
-    list = list.findAll { !(it.contains("SLIP_BSDOS") && !it.contains("15")) }
-    list = list.findAll { !(it.contains("PPP_BSDOS") && !it.contains("16")) }
-    list = list.findAll { !(it.contains("DLT_LOOP") && !it.contains("108")) }
-    list = list.findAll { !(it.contains("DLT_ENC") && !it.contains("109")) }
-    list = list.findAll { !(it.contains("DLT_HDLC") && !it.contains("112")) }
-    list = list.collect { l -> 
-      def split = l.split("\\s+")
-      if ( split[1].startsWith("DLT_") ) {
-        split[1] = split[1].substring(4)
-      }
-      if ( split[2].startsWith("DLT_") ) {
-        return ""
-      } else {
-        return "  ${split[1]}(${split[2]}),"
-      }
+    // OSGi metadata using BND
+    bundle {
+        bnd(
+            "Bundle-Name": "java-pcap",
+            "Bundle-Vendor": "Silicon Labs",
+            "Bundle-SymbolicName": "com.silabs.pcap",
+            "Bundle-Version": project.pcapVersion,
+            "Bundle-RequiredExecutionEnvironment": "JavaSE-11",
+            "Bundle-ActivationPolicy": "lazy",
+            "Main-Class": project.mainClass,
+            "-exportcontents": "com.silabs.na.pcap.*"
+        )
     }
-    def body = list.join('\n')
-    linkTypeJava.text = "${head}${body}\n${tail}"
-  }
 }
 
-task createBuildStamp() {
-  doLast {
-    def gitOutput = 'git log -1 --format=hash=%H%ndate=%cI'.execute().text
-    file('src/main/resources/build_pcap.stamp').text = """version=${project.pcapVersion}
-${gitOutput}"""
-    project.logger.lifecycle('Created build.stamp.')
-  }
+task generateLinkType {
+    doLast {
+        def dltH = file('../../libpcap/pcap/dlt.h')
+        def linkTypeJava = file('src/main/java/com/silabs/na/pcap/LinkType.java')
+        def head = "head -n 29 ${linkTypeJava}".execute().text
+        def tail = "tail -n 32 ${linkTypeJava}".execute().text
+
+        def list = dltH.readLines().findAll {
+            it.startsWith("#define DLT_") &&
+            !it.contains("DLT_CLASS(x)") &&
+            !it.contains("MATCHING_MAX")
+        }.findAll {
+            !(it.contains("PFSYNC") && !it.contains("246")) &&
+            !(it.contains("RAW") && !it.contains("12")) &&
+            !(it.contains("SLIP_BSDOS") && !it.contains("15")) &&
+            !(it.contains("PPP_BSDOS") && !it.contains("16")) &&
+            !(it.contains("DLT_LOOP") && !it.contains("108")) &&
+            !(it.contains("DLT_ENC") && !it.contains("109")) &&
+            !(it.contains("DLT_HDLC") && !it.contains("112"))
+        }.collect { l ->
+            def split = l.trim().split("\\s+")
+            if (split[1].startsWith("DLT_")) split[1] = split[1].substring(4)
+            if (split[2]?.startsWith("DLT_")) return ""
+            return "  ${split[1]}(${split[2]}),"
+        }
+
+        def body = list.findAll { it }.join('\n')
+        linkTypeJava.text = "${head}${body}\n${tail}"
+    }
 }
+
+task createBuildStamp {
+    doLast {
+        def gitOutput = 'git log -1 --format=hash=%H%ndate=%cI'.execute().text
+        file('src/main/resources/build_pcap.stamp').text = """version=${project.pcapVersion}
+${gitOutput}"""
+        logger.lifecycle("Created build_pcap.stamp.")
+    }
+}
+
 tasks.processResources.dependsOn << 'createBuildStamp'
 
 task all {
-  description 'Toplevel task that creates everything.'
-  dependsOn createBuildStamp,jar,javadocJar,sourcesJar
+    description = 'Toplevel task that creates everything.'
+    dependsOn createBuildStamp, jar, javadocJar, sourcesJar
 }
+
 
